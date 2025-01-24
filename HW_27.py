@@ -88,3 +88,67 @@ PROMPT_CONSPECT_WRITER = """
 Отрезок текста с которым ты работаешь, с которого ты будешь работать:
 {text_to_work}
 """
+client = AsyncOpenAI(api_key=API_KEY, base_url=BASE_URL)
+
+async def get_ai_request(chunk, topic="Автоматически сгенерированный конспект"):
+    try:
+        formatted_prompt = PROMPT_CONSPECT_WRITER.format(
+            topic=topic, full_text=full_text_global, text_to_work=chunk
+        )  # Используем глобальную переменную
+        response = await client.chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=[{"role": "user", "content": formatted_prompt}],
+            max_tokens=150,
+            temperature=0.7,
+        )
+        await asyncio.sleep(SLEEP_TIME)
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        return f"Ошибка обработки блока: {e}"
+
+
+def split_text(text):
+    return [text[i : i + MAX_CHUNK_SIZE] for i in range(0, len(text), MAX_CHUNK_SIZE)]
+
+
+async def generate_timestamps(text, topic="Автоматически сгенерированный конспект"):
+    try:
+        formatted_prompt = PROMPT_TIMESTAMPS.format(topic=topic, full_text=text)
+        response = await client.chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=[{"role": "user", "content": formatted_prompt}],
+            max_tokens=500,
+            temperature=0.7,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        return f"Ошибка генерации таймкодов: {e}"
+
+
+async def save_to_markdown(timestamps, conspect_chunks):
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        f.write(timestamps + "\n\n---\n\n")
+        f.write("## Конспект занятия\n\n")
+        for chunk in conspect_chunks:
+            f.write(chunk + "\n\n")
+
+
+async def main():
+    global full_text_global  # Объявляем full_text_global как глобальную
+    full_text_global = ""
+    for item in DATA:
+        full_text_global += item["text"]
+
+    timestamps_output = await generate_timestamps(full_text_global)
+    chunks = split_text(full_text_global)
+    tasks = [get_ai_request(chunk) for chunk in chunks]
+    conspect_chunks = await asyncio.gather(*tasks)
+
+    await save_to_markdown(timestamps_output, conspect_chunks)
+    print(f"Результаты сохранены в {OUTPUT_FILE}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
